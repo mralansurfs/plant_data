@@ -7,23 +7,23 @@ Created on Fri Sep 27 21:38:09 2024
 """
 
 import sqlite3
+import datetime
+import pandas as pd
 
-def readSqliteTable():
+
+def querySqlite(queryString):
+    queryResult = []
     try:
         sqliteConnection = sqlite3.connect('plant_data.db')
-        cursor = sqliteConnection.cursor()
-
-        sqlite_select_query = """SELECT * from plant_state_data"""
-        cursor.execute(sqlite_select_query)
-        records = cursor.fetchall()
-        for row in records:
-            print(row)
-        cursor.close()
+        queryResult = pd.read_sql_query(queryString, sqliteConnection)
+        queryResult['timestamp'] = pd.to_datetime(queryResult['timestamp'])
 
     except sqlite3.Error as error:
         print("Failed to read data from sqlite table", error)
     finally:
         if sqliteConnection:
             sqliteConnection.close()
+    return(queryResult)
             
-readSqliteTable()
+plant_state_data_queryResult = querySqlite("""SELECT timestamp,value,plant_line from plant_state_data""")
+
