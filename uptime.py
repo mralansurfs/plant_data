@@ -13,6 +13,13 @@ import numpy as np
 
 
 def querySqlite(queryString):
+    """ 
+    Function to query the SQLite database and return the result as a DataFrame.
+    Args:
+        queryString (str): SQL query to execute.
+    Returns:
+        DataFrame containing the result of the query.
+    """
     df = []
     try:
         sqliteConnection = sqlite3.connect('plant_data.db')
@@ -28,8 +35,17 @@ def querySqlite(queryString):
     return(df)
 
 def findStartEndTimes(df,plant_line):
-    #For a plant_line fine all the start and end times of the it as defined as
-    # changes too or from 4 in df["value_y"]
+    """ 
+    Args:
+        df (DataFrame): A merged dataframe of plant state and counter values (merged on timestamp)
+        
+    Returns:
+        DataFrame with start and end timestamps for the plant lines and start and end counter.
+        
+    For a plant_line fine all the start and end times of the it as defined as
+    changes too or from 4 in df["value_x"]
+    """ 
+    
     df = df[df['plant_line'].str.match(plant_line)]
     # Sort on timestamp and Reset the index (optional)
     df = df.sort_values(by='timestamp')
@@ -49,10 +65,19 @@ def findStartEndTimes(df,plant_line):
     return(df)
 
 def cleanCounter(df):
-    # THe counter values have resets to zero in them. This function recomputes 
-    # the counter so it has not resets to zero and is allways cumulative.
-    # Take the difference in the counter values, zero any negitive values,
-    # then cumulate sum the result
+    """ 
+    Args:
+        df (DataFrame): the counter dataframe 
+        
+    Returns:
+        df (DataFrame): the counter dataframe with any resets accounted for.
+    
+    THe counter values have resets to a value less than the previous value in them. 
+    This function recomputes the counter so it has no resets and is allways cumulative.
+    Take the difference in the counter values, revert any negitive diff values to 
+    the counter at that time, then cumulate sum the result
+    """ 
+
     df["diff"] = df.groupby("plant_line")["value"].diff()
     df['diff'] = df['diff'].where(df['diff'] >= 0, other=df["value"])
     df["counter"] = df.groupby("plant_line")["diff"].cumsum()
@@ -60,8 +85,22 @@ def cleanCounter(df):
     return(df)
 
 def getMeanWeight(row,df_weights): 
+    """
+    Args:
+        df_weights (DataFrame): the sample weights dataframe (filtered to be only one plant_line) 
+        row : the row of the plant start and end times dataframe this function is being applied to
+        
+    Returns:
+        weights_mean
+        
+    ######################
+    The weight limit for which to ignore values below is hardcoded as 0. 
+    Removing this to a hardcode dataclass would be recomended
+    ######################    
+        
     # Gets the mean weights from the df_weights dataframe for the time periods in row
     # Applied to each of the rows of df_CPL1 or df_CPL2 as a function
+    """
     df_inside = df_weights.loc[(df_weights['timestamp'] >= row["timestamp"]["start"]) & 
                 (df_weights['timestamp'] <= row["timestamp"]["end"])]
     df_inside_selected = df_inside[df_inside["value"] > 0.0]
@@ -69,10 +108,23 @@ def getMeanWeight(row,df_weights):
     weights_mean = (df_inside_selected["value"].mean(axis=0)) * 0.001
     return(weights_mean)
 
-def getResults(df,plant_line):
-
+def getResults(df,plant_line,df_weights):
+    """
+    Args:
+        df_weights (DataFrame): the sample weights dataframe (unfiltered)
+        plant_line : the plant line e.g 'Cream Packing Line 1' being investigated
+        df: the dataframe containing merged counter data and plant state on the timestamps
+        
+    Returns:
+        No returns to inside this code. .csv is writen out
+        
+    do the timeperiod selection on the merged dataset of plant state and counter values (df), 
+    carry over the counter start and end values for the time period. Apply the function 
+    getMeanWeight to each timeperiod and use it to get the mean weight over that time period.
+    do the counter subtraction and multiply by the mean weight. Write out to a csv.
+    """
     df_CPL = findStartEndTimes(df,plant_line)  
-    df_CPL["mean_weight"] = df_CPL.apply(getMeanWeight, df_weights = df_SBWD[df_SBWD['plant_line'].str.match("Cream Packing Line 1")], axis = 1 )
+    df_CPL["mean_weight"] = df_CPL.apply(getMeanWeight, df_weights = df_weights[df_weights['plant_line'].str.match(plant_line)], axis = 1 )
     df_CPL["tones_produced"] = df_CPL["mean_weight"] * (df_CPL["counter"]["end"] - df_CPL["counter"]["start"])
     df_CPL.columns = ['_'.join(col) for col in df_CPL.columns]
     
@@ -94,5 +146,6 @@ df_TCD = cleanCounter(df_TCD)
 # merge the counter data on the timestamps
 df = pd.merge_asof(df_PSD, df_TCD ,on='timestamp', by = 'plant_line')
 
-getResults(df,'Cream Packing Line 1')
-getResults(df,'Cream Packing Line 2')
+# run this function to get the on timeperiods, the tonage produced and writeout to csv
+getResults(df,'Cream Packing Line 1',df_SBWD)
+getResults(df,'Cream Packing Line 2',df_SBWD)  
