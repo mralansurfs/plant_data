@@ -54,8 +54,9 @@ def cleanCounter(df):
     # Take the difference in the counter values, zero any negitive values,
     # then cumulate sum the result
     df["diff"] = df.groupby("plant_line")["value"].diff()
-    df['diff'] = df['diff'].where(df['diff'] >= 0, other=0)
+    df['diff'] = df['diff'].where(df['diff'] >= 0, other=df["value"])
     df["counter"] = df.groupby("plant_line")["diff"].cumsum()
+    df["counter"] = df["counter"].fillna(0)
     return(df)
 
 def getMeanWeight(row,df_weights): 
@@ -63,10 +64,21 @@ def getMeanWeight(row,df_weights):
     # Applied to each of the rows of df_CPL1 or df_CPL2 as a function
     df_inside = df_weights.loc[(df_weights['timestamp'] >= row["timestamp"]["start"]) & 
                 (df_weights['timestamp'] <= row["timestamp"]["end"])]
-    df_inside_selected = df_inside[df_inside["value"] > 0.5]
+    df_inside_selected = df_inside[df_inside["value"] > 0.0]
     #df_inside.plot.hist(column=["value"])
     weights_mean = (df_inside_selected["value"].mean(axis=0)) * 0.001
     return(weights_mean)
+
+def getResults(df,plant_line):
+
+    df_CPL = findStartEndTimes(df,plant_line)  
+    df_CPL["mean_weight"] = df_CPL.apply(getMeanWeight, df_weights = df_SBWD[df_SBWD['plant_line'].str.match("Cream Packing Line 1")], axis = 1 )
+    df_CPL["tones_produced"] = df_CPL["mean_weight"] * (df_CPL["counter"]["end"] - df_CPL["counter"]["start"])
+    df_CPL.columns = ['_'.join(col) for col in df_CPL.columns]
+    
+    # Renaming columns in place 
+    df_CPL.rename(columns={ 'timestamp_start': 'start_time', 'timestamp_end': 'end_time'}, inplace=True)
+    df_CPL.reset_index().to_csv(path_or_buf = plant_line + ".csv",columns=[ "start_time","end_time","tones_produced_"])
     
 # Query the DB to get dataframes of each of the tables    
 df_PSD = querySqlite("""SELECT timestamp,value,plant_line from plant_state_data""").sort_values(by='timestamp')
@@ -76,27 +88,11 @@ df_SBWD = querySqlite("""SELECT timestamp,value,plant_line from sample_box_weigh
 # Clean out the resets in the totalised_counter_data 
 #i.e. make the counter continuallly cout up over the dataset not revert to zero at times
 df_TCD = cleanCounter(df_TCD)
-# df_TCD.query("plant_line == 'Cream Packing Line 1'").plot.line(y="counter",x="timestamp")
-# df_TCD.query("plant_line == 'Cream Packing Line 2'").plot.line(y="counter",x="timestamp")
+#df_TCD.query("plant_line == 'Cream Packing Line 1'").plot.line(y="counter",x="timestamp")
+#df_TCD.query("plant_line == 'Cream Packing Line 2'").plot.line(y="counter",x="timestamp")
 
 # merge the counter data on the timestamps
 df = pd.merge_asof(df_PSD, df_TCD ,on='timestamp', by = 'plant_line')
 
-df_CPL1 = findStartEndTimes(df,"Cream Packing Line 1") 
-df_CPL2 = findStartEndTimes(df,"Cream Packing Line 2") 
-
-df_CPL1["mean_weight"] = df_CPL1.apply(getMeanWeight, df_weights = df_SBWD[df_SBWD['plant_line'].str.match("Cream Packing Line 1")], axis = 1 )
-df_CPL1["tones_produced"] = df_CPL1["mean_weight"] * (df_CPL1["counter"]["end"] - df_CPL1["counter"]["start"])
-
-df_CPL2["mean_weight"] = df_CPL2.apply(getMeanWeight, df_weights = df_SBWD[df_SBWD['plant_line'].str.match("Cream Packing Line 2")], axis = 1 )
-df_CPL2["tones_produced"] = (df_CPL2["mean_weight"] * (df_CPL2["counter"]["end"] - df_CPL2["counter"]["start"]))
-
-df_CPL1.columns = ['_'.join(col) for col in df_CPL1.columns]
-df_CPL2.columns = ['_'.join(col) for col in df_CPL2.columns]
-
-# Renaming columns in place 
-df_CPL1.rename(columns={ 'timestamp_start': 'start_time', 'timestamp_end': 'end_time'}, inplace=True)
-df_CPL2.rename(columns={ 'timestamp_start': 'start_time', 'timestamp_end': 'end_time'}, inplace=True)
-
-df_CPL1.reset_index().to_csv(path_or_buf="Cream_Packing_Line_1.csv",columns=[ "start_time","end_time","tones_produced_"])
-df_CPL2.reset_index().to_csv(path_or_buf="Cream_Packing_Line_2.csv",columns=[ "start_time","end_time","tones_produced_"])
+getResults(df,'Cream Packing Line 1')
+getResults(df,'Cream Packing Line 2')
